@@ -1,0 +1,102 @@
+#include <stdio.h>
+#include <string.h>
+#include <mega8.h>
+#include <delay.h>
+
+#include "DHT.h"
+
+//main function that communicates with DHT sensor 
+#if DHT_TYPE == 1
+char dht_GetTemp(int *temperature, int *humidity) {
+#elif DHT_TYPE == 0
+char dht_GetTemp(char *temperature, char *humidity) {
+#endif
+    unsigned char bits[5];
+    unsigned char i,j = 0;
+    unsigned int timeoutcounter = 0;
+
+    memset(bits, 0, sizeof(bits));
+
+    //prepare correct port and pin of DHT sensor
+    DHT_DDR |= (1 << DHT_INPUTPIN); //output
+    DHT_PORT |= (1 << DHT_INPUTPIN); //high
+    delay_ms(100);
+
+    //begin send request
+    DHT_PORT &= ~(1 << DHT_INPUTPIN); //low
+    #if DHT_TYPE == DHT_DHT11
+    delay_ms(18);
+    #elif DHT_TYPE == DHT_DHT22
+    delay_us(500);
+    #endif
+    DHT_PORT |= (1 << DHT_INPUTPIN); //high
+    DHT_DDR &= ~(1 << DHT_INPUTPIN); //input
+    delay_us(40);
+    //check first start condition
+    if((DHT_PIN & (1<<DHT_INPUTPIN))) {
+        return -1;
+    }
+    delay_us(80);
+    
+    //check second start condition
+    if(!(DHT_PIN & (1<<DHT_INPUTPIN))) {
+        return -1;
+    }
+    delay_us(80);
+
+    //read-in data
+    for (j=0; j<5; j++) { //for each byte (5 total)
+        unsigned char result = 0;
+        for(i=0; i<8; i++) {//for each bit in each byte (8 total)
+            timeoutcounter = 0;
+            while(!(DHT_PIN & (1<<DHT_INPUTPIN))) { //wait for an high input (non blocking)
+                timeoutcounter++;
+                if(timeoutcounter > DHT_TIMEOUT) {
+                    return -1;
+                }
+            }
+            delay_us(30);
+            if(DHT_PIN & (1<<DHT_INPUTPIN))
+                result |= (1<<(7-i));
+            timeoutcounter = 0;
+            while(DHT_PIN & (1<<DHT_INPUTPIN)) {
+                timeoutcounter++;
+                if(timeoutcounter > DHT_TIMEOUT) {
+                    return -1;
+                }
+            }
+        }
+        bits[j] = result;
+    }
+
+    //reset port
+    DHT_DDR |= (1<<DHT_INPUTPIN); //output
+    DHT_PORT |= (1<<DHT_INPUTPIN); //low
+    delay_ms(100);
+
+    //compare checksum
+    if ((unsigned char)(bits[0] + bits[1] + bits[2] + bits[3]) == bits[4]) {
+        //return temperature and humidity
+        #if DHT_TYPE == DHT_DHT22
+        *temperature = bits[2]<<8 | bits[3];
+        *humidity = bits[0]<<8 | bits[1];
+        
+        #elif DHT_TYPE == DHT_DHT11
+        *temperature = bits[2];
+        *humidity = bits[0];
+        #endif
+        
+        return 0;
+    }
+
+    return -1;
+}
+
+//function that calls data function read-in
+#if DHT_TYPE == 1
+char dht_GetTempUtil(unsigned int *temperature, unsigned int *humidity) {
+    #elif DHT_TYPE == 0
+    unsigned char dht_GetTempUtil(char *temperature, char *humidity) {
+        #endif
+        return dht_GetTemp(temperature, humidity);
+    }
